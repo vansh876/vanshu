@@ -84,11 +84,11 @@ async def zee5_capture(bot, update):
                     
             logger.info(url)
         except:
-            await update.reply_text("There's some issue with your URL 😕", quote=True)
+            await update.reply_text("There's Some Issue With Your URL", quote=True)
             return
             
     else:
-        await update.reply_text("I can download from Zee5 links only! Use @UploadHEXbot for other links 😇", quote=True)
+        await update.reply_text("I Can Download From Zee5 links only", quote=True)
         return
     
     try:
@@ -157,7 +157,7 @@ async def zee5_capture(bot, update):
                         
             inline_keyboard.append([
                 InlineKeyboardButton(
-                    "✖️ CLOSE ✖️",
+                    "❌️ CLOSE",
                      callback_data=(
                         "closeformat").encode("UTF-8")
                 )
@@ -189,7 +189,7 @@ async def zee5_capture(bot, update):
                 reply_to_message_id=update.message_id
             )
         else:
-            await update.reply_text("There's some issue with your URL 😕 Or may be DRM protected!", quote=True)
+            await update.reply_text("There's Some Issue With Your URL Or May Be DRM Protected!", quote=True)
             return
     except:
         await update.reply_text("Couldn't download your video!", quote=True)
