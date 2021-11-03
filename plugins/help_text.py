@@ -29,7 +29,7 @@ def send_start(bot, update):
     bot.send_message(
         chat_id=update.chat.id,
         text=script.START_TEXT.format(update.from_user.first_name),
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="➰️ SOURCE CODE", url="https://github.com/ajvadntr/AIOM_ZEE5_DL_BOT")], [InlineKeyboardButton(text="🗣️ Channel", url="https://t.me/AIOM_BOTS"),
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="➰️ SOURCE CODE", url="https://github.com/ajvadntr/AIOM_ZEE5_DL_BOT")], [InlineKeyboardButton(text="🗣️ CHANNEL", url="https://t.me/AIOM_BOTS"),
                                                     InlineKeyboardButton(text="👥 GROUP", url="https://t.me/AIOM_BOTS_GROUP")]]),
         parse_mode="html",
         disable_web_page_preview=True,
