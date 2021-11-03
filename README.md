@@ -1,34 +1,34 @@
 ## Zee5 Downloader
-If you find any bugs, report at @TroJanzSupport
+If You Find Any Bugs, Report At @AIOM_BOTS_GROUP
 
 **My Features**:
 
-👉 Upload as file/video from any NON-DRM Zee5 link
+⭕️ Upload As file/video From Any NON-DRM Zee5 Link
 
-👉 Permanent thumbnail support.
+⭕️ Permanent Thumbnail Support.
 
 ### Installation
 
 
-#### Deploy to Heroku
+#### Deploy To Heroku
 
-[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://www.heroku.com/deploy?template=https://github.com/TroJanzHEX/Zee5-Downloader)
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://www.heroku.com/deploy?template=https://github.com/ajvadntr/AIOM_ZEE5_DL_BOT)
 
-#### Run in your VPS
+#### Run In Your VPS
 
-* Install requirements
+* Install Requirements
 
 ```sh
 sudo apt install python3-pip
 sudo apt install ffmpeg
 ```
 
-* Create config.py appropriately (Refer Configs section)
+* Create Config.py Appropriately (Refer Configs section)
 
 * Run the app
 
 ```sh
-git clone https://github.com/TroJanzHEX/Zee5-Downloader
+git clone https://github.com/ajvadntr/AIOM_ZEE5_DL_BOT
 cd Zee5-Downloader
 pip3 install -r requirements.txt
 python3 bot.py
@@ -37,8 +37,8 @@ python3 bot.py
 ## Configs
 
 * TG_BOT_TOKEN  - Get bot token from @BotFather
-* APP_ID        - From my.telegram.org (or @UseTGXBot)
-* API_HASH      - From my.telegram.org (or @UseTGXBot)
+* APP_ID        - From my.telegram.org
+* API_HASH      - From my.telegram.org
 * DB_URI        - PostgreSQL DB URL
 
 ## Commands
@@ -48,10 +48,3 @@ python3 bot.py
 * /upgrade           - Nothing much here
 * /showthumb         - Shows saved thumbnail
 * /delthumb          - Clear saved thumbnail
-
-
-## Credits, and Thanks to Beloved Developers ;
-
-* [SpEcHlDe](https://telegram.dog/SpEcHlDe) 
-* [Dan Tès](https://telegram.dog/haskell)
-* [Dedshit](https://github.com/dedshit)
