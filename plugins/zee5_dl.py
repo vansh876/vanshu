@@ -1,434 +1,317 @@
 import logging
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-logging.getLogger("pyrogram").setLevel(logging.WARNING)
-
-import os
+import subprocess, os, argparse, json, time, binascii, base64, requests, sys, ffmpy
 import re
-import json
-import math
-import time
-import shutil
-import random
-import ffmpeg
-import asyncio
-import requests
+from pywidevine.decrypt.wvdecrypt import WvDecrypt
+from pymediainfo import MediaInfo
 
-if bool(os.environ.get("WEBHOOK", False)):
-    from sample_config import Config
-else:
-    from config import Config
-
-from script import script
-from database.database import *
-
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-from hachoir.metadata import extractMetadata
-from hachoir.parser import createParser
-from datetime import datetime
-from PIL import Image
-
-from plugins.helpers import(
-    progress_for_pyrogram,
-    humanbytes,
-    headers,
-    take_screen_shot,
-    DownLoadFile
-)
+parser = argparse.ArgumentParser()
+parser.add_argument("--keys", dest="keys", action="store_true", help="show keys and exit")
+args = parser.parse_args()
 
 
+currentFile = __file__
+realPath = os.path.realpath(currentFile)
+dirPath = os.path.dirname(realPath)
+dirName = os.path.basename(dirPath)
+ytdlp = dirPath + "/binaries/youtube-dl-aria2.exe"
+ffmpegpath = dirPath + "/binaries/ffmpeg.exe"
+aria2cexe = dirPath + "/binaries/aria2c.exe"
+mp4decryptexe = dirPath + "/binaries/mp4decrypt1.exe"
+mkvmergeexe = dirPath + "/binaries/mkvmerge.exe"
+mp4dump = dirPath + "/binaries/mp4dump.exe"
 
-@Client.on_message(filters.private & filters.regex(pattern=".*http.*"))
-async def zee5_capture(bot, update):
+FInput_video = dirPath + '/temp/vid_enc.mp4'
+FInput_audio = dirPath + '/temp/aud_enc.m4a'
+out_Audio = FInput_audio.replace('enc', 'dec')
+out_Video = FInput_video.replace('enc', 'dec')
+Remuxed_Video = out_Video.replace('mp4', 'H264')
+Demuxed_Audio = out_Audio.replace('m4a', 'aac')
 
-    if update.from_user.id in Config.BANNED_USERS:
-        await bot.delete_messages(
-            chat_id=update.chat.id,
-            message_ids=update.message_id,
-            revoke=True
-        )
-        return
+auth_token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYmYiOjE2Mzg0NzU5NzEsImV4cCI6MTY3MDAxMTk3MSwiaXNzIjoiaHR0cHM6Ly91c2VyYXBpLnplZTUuY29tIiwiYXVkIjpbImh0dHBzOi8vdXNlcmFwaS56ZWU1LmNvbS9yZXNvdXJjZXMiLCJ1c2VyYXBpIiwic3Vic2NyaXB0aW9uYXBpIl0sImNsaWVudF9pZCI6InJlZnJlc2hfdG9rZW5fY2xpZW50Iiwic3ViIjoiY2NjMjE4NGYtYjQwNi00YTRkLTk2MjAtM2ZmZDUzZDUwYmQyIiwiYXV0aF90aW1lIjoxNjM4NDc1ODc5LCJpZHAiOiJsb2NhbCIsInVzZXJfaWQiOiJjY2MyMTg0Zi1iNDA2LTRhNGQtOTYyMC0zZmZkNTNkNTBiZDIiLCJzeXN0ZW0iOiJaNSIsImFjdGl2YXRpb25fZGF0ZSI6IjIwMTctMTItMTJUMDA6MDA6MDAiLCJjcmVhdGVkX2RhdGUiOiIiLCJyZWdpc3RyYXRpb25fY291bnRyeSI6IklOIiwidXNlcl9tb2JpbGUiOiI5MTcwMDQ4MTQyOTMiLCJzdWJzY3JpcHRpb25zIjoiW3tcImlkXCI6XCI5MTk3ZDJkYi0wZTZiLTQ0MGUtYWMzYi05MTM1ZmY1YzIzNjBcIixcInVzZXJfaWRcIjpcImNjYzIxODRmLWI0MDYtNGE0ZC05NjIwLTNmZmQ1M2Q1MGJkMlwiLFwiaWRlbnRpZmllclwiOlwiQ1JNXCIsXCJzdWJzY3JpcHRpb25fcGxhblwiOntcImlkXCI6XCIwLTExLTE4MzRcIixcImFzc2V0X3R5cGVcIjoxMSxcInN1YnNjcmlwdGlvbl9wbGFuX3R5cGVcIjpcIlNWT0RcIixcInRpdGxlXCI6XCJQcmVtaXVtXCIsXCJvcmlnaW5hbF90aXRsZVwiOlwiUHJlbWl1bVwiLFwic3lzdGVtXCI6XCJaNVwiLFwiZGVzY3JpcHRpb25cIjpcIlByZW1pdW0gUGFjayAtIDYgbXRoc1wiLFwiYmlsbGluZ19jeWNsZV90eXBlXCI6XCJkYXlzXCIsXCJiaWxsaW5nX2ZyZXF1ZW5jeVwiOjE4MCxcInByaWNlXCI6NTk5LjAsXCJjdXJyZW5jeVwiOlwiSU5SXCIsXCJjb3VudHJ5XCI6XCJJTlwiLFwiY291bnRyaWVzXCI6W1wiSU5cIl0sXCJzdGFydFwiOlwiMjAyMS0wMi0wMVQwMDowMDowMFpcIixcImVuZFwiOlwiMjAyMi0xMi0zMVQyMzo1OTo1OVpcIixcIm9ubHlfYXZhaWxhYmxlX3dpdGhfcHJvbW90aW9uXCI6ZmFsc2UsXCJyZWN1cnJpbmdcIjpmYWxzZSxcInBheW1lbnRfcHJvdmlkZXJzXCI6W3tcIm5hbWVcIjpcIlpFRTVcIn1dLFwicHJvbW90aW9uc1wiOltdLFwiYXNzZXRfdHlwZXNcIjpbNiwwLDldLFwiYXNzZXRfaWRzXCI6W10sXCJidXNpbmVzc190eXBlXCI6XCJmcmVlXCIsXCJiaWxsaW5nX3R5cGVcIjpcInByZW1pdW1cIixcIm51bWJlcl9vZl9zdXBwb3J0ZWRfZGV2aWNlc1wiOjUsXCJtb3ZpZV9hdWRpb19sYW5ndWFnZXNcIjpbXSxcInR2X3Nob3dfYXVkaW9fbGFuZ3VhZ2VzXCI6W10sXCJjaGFubmVsX2F1ZGlvX2xhbmd1YWdlc1wiOltdLFwidmFsaWRfZm9yX2FsbF9jb3VudHJpZXNcIjp0cnVlLFwiYWxsb3dlZF9wbGF5YmFja19kdXJhdGlvblwiOjYsXCJjYXRlZ29yeVwiOm51bGx9LFwic3Vic2NyaXB0aW9uX3N0YXJ0XCI6XCIyMDIxLTEyLTAyVDIwOjEyOjQ5Ljg0WlwiLFwic3Vic2NyaXB0aW9uX2VuZFwiOlwiMjAyMi0wNS0zMVQyMzo1OTo1OVpcIixcInN0YXRlXCI6XCJhY3RpdmF0ZWRcIixcInJlY3VycmluZ19lbmFibGVkXCI6ZmFsc2UsXCJwYXltZW50X3Byb3ZpZGVyXCI6XCJjcm1cIixcImZyZWVfdHJpYWxcIjpudWxsLFwiY3JlYXRlX2RhdGVcIjpcIjIwMjEtMTItMDJUMjA6MTI6NDkuODRaXCIsXCJpcF9hZGRyZXNzXCI6XCIxNTcuMzUuOTAuODlcIixcInJlZ2lvblwiOlwiQmloYXJcIixcImFkZGl0aW9uYWxcIjp7XCJwYXltZW50bW9kZVwiOlwiUHJlcGFpZENvZGVcIixcImNvdXBvbmNvZGVcIjpcIlo1TTZQVG9UckpIakZFXCJ9LFwiYWxsb3dlZF9iaWxsaW5nX2N5Y2xlc1wiOjAsXCJ1c2VkX2JpbGxpbmdfY3ljbGVzXCI6MH1dIiwiY3VycmVudF9jb3VudHJ5IjoiWloiLCJzY29wZSI6WyJ1c2VyYXBpIiwic3Vic2NyaXB0aW9uYXBpIiwib2ZmbGluZV9hY2Nlc3MiXSwiYW1yIjpbImRlbGVnYXRpb24iXX0.oc23r7B9Cu738oXSpiqiEHgfEDaNnbi6A6RBEhyOI0-jdUfNyCMt48y2Vqwhix9zgFtTJsAjs3dy0JSOb9t1gAFyRZus-ylpzv0AfH0X-mAwgZFbCmIBQqPZCXm1G0rvxaAnmOsvv-OeFBVUMeWLT3lAMcMe5JMy8gwOkLm6AKBgyxIKMnXaX1Wm0o4ndtFoaQfpZ1Sw5EXi-WFLy_4dtHNFvrUK77EqflhA5usarWrYtjww-Dxuh-rJ11wCvSDNRubG5x3ZLYTBj4SOurgOGbZPLATQqabaWsuf3lmEWFXapXz0xZaJ4OxYGhbyzqemw3i36k229ZVNoPuf0OvQUw"
+dev_id = 'K6J3rzHjLhD2P1yXzpDZ000000000000'
+licurl = "https://wv-keyos-aps1.licensekeyserver.co/"
 
-    logger.info(update.from_user.id)
+def ReplaceDontLikeWord(X):
+    X = X.replace(' !', '').replace('!', '').replace(' DRM', '').replace('…', '').replace('\n', '').replace(' : ', ' - ').replace(': ', ' - ').replace(':', ' - ').replace('&', 'and').replace('+', '').replace(';', '').replace('ÃƒÂ³', 'o').replace('[', '').replace(']', '').replace('/', '.').replace('//', '').replace('’', "").replace('*', 'x').replace('<', '').replace('>', '').replace('|', '').replace('~', '').replace('#', '').replace('%', '').replace('{', '').replace('}', '').replace(',', '').replace('?', '').replace("'","").replace('�', ' ').replace('"', '').replace('"', '').replace('  ', ' ').replace('(Telugu Dubbed) ','').replace('(Tamil Dubbed) ','').replace('(Hindi Dubbed) ','').replace('(Telugu dubbed) ','').replace('(Tamil dubbed) ','').replace('(Hindi dubbed) ','').replace('(telugu Dubbed) ','').replace('(tamil Dubbed) ','').replace('(hindi Dubbed) ','').replace('(telugu dubbed) ','').replace('(tamil dubbed) ','').replace('(hindi dubbed) ','').replace('(Telugu) ','').replace('(Tamil) ','').replace('(Hindi) ','').replace('(telugu) ','').replace('(tamil) ','').replace('(hindi) ','').replace('  ', ' ').replace('Season 2 ', '').replace('Season 1 ', '').replace('Season 3 ', '').replace('Season 5 ', '').replace('Season 4 ', '')
+    X = X.replace(" - ","-").replace(" ",".")
+    return X
+
+def GetMPD(video_id, lic_token=False):
+    api_url = "https://spapi.zee5.com/singlePlayback/getDetails/"
+    access_token = requests.get('https://useraction.zee5.com/token/platform_tokens.php?platform_name=web_app').json()['token']
     
-    if "zee5" in update.text:
+    api_headers = {
+        "x-access-token": access_token
+    }
+    
+    params = {
+        'content_id': video_id,
+        'device_id': dev_id,
+        'platform_name': 'android_app',
+        'translation': 'en',
+        'user_language': 'his',
+        'country': 'IN',
+        'state': 'TN',
+        'app_version': '2.50.52',
+        'user_type': 'premium',
+        'check_parental_control': False,
+        'uid': dev_id,
+        'ppid': dev_id,
+        'version': 12
+    }
+        
+    data = {
+        'Authorization': f'bearer {auth_token}',
+        'x-access-token': access_token
+    }
+    
+    resp = requests.post(api_url, headers=api_headers, params=params, json=data).json()
+    #print(resp)    
+    if 'error_msg' in resp:
+        print(f'\n{resp["error_msg"]}')
+        exit()
+        
+    if lic_token:
+        return resp['keyOsDetails']['drm']
+    
+    ContentType = resp['assetDetails']["asset_subtype"]
+    if ContentType == "movie" or ContentType == 'trailer':
+        title = resp['assetDetails']["title"]
         try:
-            w = update.text 
-            req1 = requests.get("https://useraction.zee5.com/tokennd").json()
-            rgx = re.findall("([0-9]?\w+)", w)[-3:]
-            li = { "url":"zee5vodnd.akamaized.net", "token":"https://gwapi.zee5.com/content/details/" }
-            req2 = requests.get("https://useraction.zee5.com/token/platform_tokens.php?platform_name=web_app").json()["token"]
-            headers["X-Access-Token"] = req2
-            req3 = requests.get("https://useraction.zee5.com/token").json()    
-            if "movies" in w:
-                    r1 = requests.get(li["token"] + "-".join(rgx),
-                                                headers=headers, 
-                                                params={"translation":"en", "country":"IN"}).json()
-                    g1 = (r1["hls"][0].replace("drm", "hls") + req1["video_token"])
-                    file_name = r1["title"]
-                    url = "https://" + li["url"] + g1
-            elif "tvshows" or "originals" in w:
-                    r2 = requests.get(li["token"] + "-".join(rgx), 
-                                                headers=headers, 
-                                                params={"translation":"en", "country":"IN"}).json()
-                    g2 = (r2["hls"][0].replace("drm", "hls"))
-                    if "netst" in g2:
-                        file_name = r2["title"]
-                        url = g2 + req3["video_token"]               
-                    else:
-                        file_name = r2["title"]
-                        url = "https://" + li["url"] + g2 + req1["video_token"]
-                    
-            logger.info(url)
-        except:
-            await update.reply_text("There's Some Issue With Your URL", quote=True)
-            return
-            
+            year = resp['assetDetails']["release_date"][0:4]
+            output = f'{title}.{year}'
+        except Exception:
+            output = title
+
+    elif ContentType == "episode":
+        show_name = resp["assetDetails"]["tvshow_name"]
+        
+        s_id = resp["assetDetails"]["season"]
+        for x in resp['showDetails']['seasons']:
+            if x['id'] == s_id:
+                s_num = x['orderid']
+        
+        season_number = str(s_num).zfill(2)
+        episode_number = str(resp['assetDetails']["orderid"]).zfill(2)
+        episode_title = resp['assetDetails']["title"]
+        output = f'{show_name}.S{season_number}E{episode_number}.{episode_title}'
+    
+    MPD = resp['assetDetails']['video_url']['mpd'].split('?')[0].replace("-phone.mpd",".mpd").replace("https://vodprime-ak.akamaized.net","https://mediacloudfront.zee5.com")
+    print(MPD)
+    subs_res = resp['assetDetails']['subtitle_url']
+    subs_lang = []
+    subs_urls = []
+    for x in range(len(subs_res)):
+        subs_lang.append(subs_res[x]['language'])
+        subs_urls.append(subs_res[x]['url'])
+    
+    return MPD, ReplaceDontLikeWord(output), subs_lang, subs_urls
+
+def RipIt(video_id, qual):
+    MPD, output, subs_lang, subs_urls = GetMPD(video_id)
+    print('\nRipping:', output)
+    #subprocess.run([ytdlp, '-k', '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/83.0.4103.61 Mobile/15E148 Safari/604.1', '-F', MPD])
+    #time.sleep(1)
+
+    Content = ""
+    if '1' in Content:
+        if not os.path.exists(FInput_audio) and not os.path.exists(out_Audio):
+            subprocess.run([ytdlp, '-k', '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/83.0.4103.61 Mobile/15E148 Safari/604.1', '-f', "bestaudio", '--fixup', 'never', MPD, '-o', FInput_audio])
+        else:
+            pass
     else:
-        await update.reply_text("I Can Download From Zee5 links only", quote=True)
+        try:
+        
+            if not os.path.exists(FInput_audio) and not os.path.exists(out_Audio):
+                subprocess.run([ytdlp, '-k', '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/83.0.4103.61 Mobile/15E148 Safari/604.1', '-f bestaudio', '--fixup', 'never', MPD, '-o', FInput_audio])
+            else:
+                pass
+        except Exception:
+            pass
+
+        if not os.path.exists(FInput_video) and not os.path.exists(out_Video):
+            subprocess.run([ytdlp, '-k', '--user-agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/83.0.4103.61 Mobile/15E148 Safari/604.1', '-f', qual, '--fixup', 'never', MPD, '-o', FInput_video])
+        else:
+            pass
+
+    for x in range(len(subs_lang)):
+        subs_srt = f'{subs_lang[x]}.srt'
+        if os.path.exists(subs_srt): os.remove(subs_srt)
+        subprocess.run([ffmpegpath, '-loglevel', 'panic', '-i', subs_urls[x], subs_srt])
+
+    if not os.path.exists(out_Video) or not os.path.exists(out_Audio):
+        print('\nEnter Decryption Section...')
+    KID = ''
+    pssh = None
+    def find_str(s, char):
+            index = 0
+            if char in s:
+                c = char[0]
+                for ch in s:
+                    if ch == c and s[index:index + len(char)] == char:
+                        return index
+                    index += 1
+
+            return -1
+    mp4dump = dirPath + "/binaries/mp4dump.exe"
+    mp4dump = subprocess.Popen([mp4dump, FInput_audio], stdout=subprocess.PIPE)
+    mp4dump = str(mp4dump.stdout.read())
+    A = find_str(mp4dump, 'default_KID')
+    KID = mp4dump[A:A + 63].replace('default_KID = ', '').replace('[', '').replace(']', '').replace(' ', '')
+    KID = KID.upper()
+    KID_video = KID[0:8] + '-' + KID[8:12] + '-' + KID[12:16] + '-' + KID[16:20] + '-' + KID[20:32]
+    # print('KID:{}'.format(KID_video))
+    if KID == '':
+        KID = 'nothing'
+
+
+    pssh = re.findall(r'<cenc:pssh>(.*?)</cenc:pssh>', requests.get(MPD).text)[1]
+    # print(pssh)
+
+    license_headers = {
+        'customdata': GetMPD(video_id, True)
+    }
+
+    def do_decrypt(pssh, licurl):
+        wvdecrypt = WvDecrypt(pssh)
+        chal = wvdecrypt.get_challenge()
+        resp = requests.post(url=licurl,data = chal,headers=license_headers)
+        license_decoded = resp.content
+        license_b64 = base64.b64encode(license_decoded)
+        wvdecrypt.update_license(license_b64)
+        keys = wvdecrypt.start_process()
+
+        return keys
+
+    def keysOnly(keys):
+        for key in keys:
+            if key.type == 'CONTENT':
+                key = ('{}:{}'.format(key.kid.hex(), key.key.hex()))
+                print(key)
+    if not os.path.exists(out_Video) or not os.path.exists(out_Audio):
+        print('\nGetting Keys...\n')
+        KEYS = do_decrypt(pssh=pssh, licurl=licurl)
+        keysOnly(KEYS)
+
+    if args.keys:
+        exit()
+
+    def proper(keys):
+        commandline = [mp4decryptexe]
+        for key in keys:
+            if key.type == 'CONTENT':
+                commandline.append('--key')
+                commandline.append('{}:{}'.format(key.kid.hex(), key.key.hex()))
+
+        return commandline
+
+    def decrypt(keys_, inputt, output):
+        Commmand = proper(keys_)
+        Commmand.append(inputt)
+        Commmand.append(output)
+
+        wvdecrypt_process = subprocess.Popen(Commmand)
+        stdoutdata, stderrdata = wvdecrypt_process.communicate()
+        wvdecrypt_process.wait()
+
         return
+
+    def keysOnly(keys):
+        for key in keys:
+            if key.type == 'CONTENT':
+                key = ('{}:{}'.format(key.kid.hex(), key.key.hex()))
+        return key
+
+    try:
+        if not os.path.exists(out_Video):
+            print("\nDecrypting Video...")
+            print ("Using KEY: " + keysOnly(KEYS))
+            command = decrypt(KEYS, FInput_video, out_Video)
+            print('Done!')
+    except Exception:
+        pass
+
+    if not os.path.exists(out_Audio):
+        print("\nDecrypting Audio...")
+        print ("Using KEY: " + keysOnly(KEYS))
+        command = decrypt(KEYS, FInput_audio, out_Audio)
+        print('Done!')
+
+    try:
+        if os.path.exists(out_Video) and not os.path.exists(Remuxed_Video):
+            print("\nRemuxing video...")
+            ff = ffmpy.FFmpeg(executable=ffmpegpath, inputs={out_Video: None}, outputs={Remuxed_Video: '-c copy -metadata title="TheDNK" -metadata:s:v:0 language=eng -metadata:s:v:0 title="TheDNK" '}, global_options="-y -hide_banner -loglevel warning")
+            ff.run()
+            time.sleep (50.0/1000.0)
+            print('Done!')
+    except Exception:
+        pass
+
+    if os.path.exists(out_Audio) and not os.path.exists(Demuxed_Audio):
+        print("\nDemuxing audio...")
+        ff = ffmpy.FFmpeg(executable=ffmpegpath, inputs={out_Audio: None}, outputs={Demuxed_Audio: '-c copy -metadata:s:a:0 language=tel -metadata:s:a:0 title="TheDNK" '}, global_options="-y -hide_banner -loglevel warning")
+        ff.run()
+        time.sleep (50.0/1000.0)
+        print('Done!')
+    
+    vid_mi = MediaInfo.parse(Remuxed_Video)
+    vid_height = vid_mi.video_tracks[0].height
+    vid_format = vid_mi.video_tracks[0].format
+    if vid_height > 1440 and vid_height <= 2160: resoln = "2160p"
+    elif vid_height > 1080 and vid_height <= 1440: resoln = "1440p"
+    elif vid_height > 720 and vid_height <= 1080: resoln = "1080p"
+    elif vid_height > 576 and vid_height <= 720: resoln = "720p"
+    elif vid_height > 480 and vid_height <= 576: resoln = "576p"
+    elif vid_height > 360 and vid_height <= 480: resoln = "480p"
+    elif vid_height > 240 and vid_height <= 360: resoln = "360p"
+    elif vid_height > 144 and vid_height <= 240: resoln = "240p"                
+    else: resoln = "144p"
+    
+    output += f".{resoln}.ZEE5.WEB-DL.{vid_format}.BTSPROHD.COM.mkv" 
     
     try:
-        zee5_capture.url = url    
+        print('\nMuxing Video and Audio...')
+        mkvmerge_command = [mkvmergeexe, '-q', '--ui-language' ,'en', '--output', output, '--language', '0:und', '--default-track', '0:yes', '--compression', '0:none', Remuxed_Video, '--language', '0:und', '--default-track', '0:yes', '--compression' ,'0:none', Demuxed_Audio,'--language', '0:und','--track-order', '0:0,1:0,2:0,3:0,4:0']
         
-        command_to_exec = [
-            "youtube-dl",
-            "--no-warnings",
-            "--youtube-skip-dash-manifest",
-            "-j",
-            url,
-            "--geo-bypass-country",
-            "IN"
-        ]
-        process = await asyncio.create_subprocess_exec(
-            *command_to_exec,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        e_response = stderr.decode().strip()
-        t_response = stdout.decode().strip()
-
-        if e_response:
-            logger.info(e_response)
-
-        if t_response:
-            x_reponse = t_response
-            if "\n" in x_reponse:
-                x_reponse, _ = x_reponse.split("\n")
-            response_json = json.loads(x_reponse)
-            save_ytdl_json_path = Config.DOWNLOAD_LOCATION + \
-                "/" + str(update.from_user.id) + ".json"
-            with open(save_ytdl_json_path, "w", encoding="utf8") as outfile:
-                json.dump(response_json, outfile, ensure_ascii=False)
-            inline_keyboard = []
-            duration = None
-            if "duration" in response_json:
-                duration = response_json["duration"]
-            if "formats" in response_json:
-                for formats in response_json["formats"]:
-                    format_id = formats.get("format_id")
-                    format_string = formats.get("format_note")
-                    if format_string is None:
-                        format_string = formats.get("format")
-                    format_ext = formats.get("ext")
-                    approx_file_size = ""
-                    if "filesize" in formats:
-                        approx_file_size = humanbytes(formats["filesize"])
-                    cb_string_video = "{}|{}|{}".format(
-                        "video", format_id, format_ext)
-                    cb_string_file = "{}|{}|{}".format(
-                        "file", format_id, format_ext)
-                    if format_string is not None and not "audio only" in format_string:
-                        ikeyboard = [
-                            InlineKeyboardButton(
-                                "🎞 (" + format_string + ") " + approx_file_size + " ",
-                                callback_data=(cb_string_video).encode("UTF-8")
-                            ),
-                            InlineKeyboardButton(
-                                "📁 FILE " + format_ext + " " + approx_file_size + " ",
-                                callback_data=(cb_string_file).encode("UTF-8")
-                            )
-                        ]                           
-                        inline_keyboard.append(ikeyboard)
-                        
-            inline_keyboard.append([
-                InlineKeyboardButton(
-                    "❌️ CLOSE",
-                     callback_data=(
-                        "closeformat").encode("UTF-8")
-                )
-             ])
-
-            reply_markup = InlineKeyboardMarkup(inline_keyboard)
-            thumbnail = Config.DEF_THUMB_NAIL_VID_S
-            thumbnail_image = Config.DEF_THUMB_NAIL_VID_S
-            if "thumbnail" in response_json:
-               if response_json["thumbnail"] is not None:
-                   thumbnail = response_json["thumbnail"]
-                   thumbnail_image = response_json["thumbnail"]
-            thumb_image_path = DownLoadFile(
-                thumbnail_image,
-                Config.DOWNLOAD_LOCATION + "/" +
-                str(update.from_user.id) + ".jpg",
-                Config.CHUNK_SIZE,
-                None,  # bot,
-                script.DOWNLOAD_START,
-                update.message_id,
-                update.chat.id
-            )   
- 
-            await bot.send_message(
-                chat_id=update.chat.id,
-                text=script.FORMAT_SELECTION.format(thumbnail),
-                reply_markup=reply_markup,
-                parse_mode="html",
-                reply_to_message_id=update.message_id
-            )
+        #for i in range(len(subs_lang)):
+            #mkvmerge_command.append("--language")
+            #mkvmerge_command.append(f"0:{subs_lang[i]}")
+            #mkvmerge_command.append(f"{dirPath}/{subs_lang[i]}.srt")
+        subprocess.run(mkvmerge_command)
+    except Exception:
+        pass
+      
+    if '1' in Content:
+        print('Cleaning Directory...')
+        os.remove(FInput_audio)
+        os.remove(out_Audio)
+        print('Done!!')
+    else:    
+        print('Cleaning Directory...')
+        if os.path.exists(output):
+            os.remove(out_Audio)
+            os.remove(out_Video)
+            #for i in range(len(subs_lang)):
+                #os.remove(f"{dirPath}/{subs_lang[i]}.srt")
+            os.remove(Demuxed_Audio)
+            os.remove(Remuxed_Video)       
+            os.remove(FInput_audio)
+            os.remove(FInput_video)
+            print('Done!')
         else:
-            await update.reply_text("There's Some Issue With Your URL Or May Be DRM Protected!", quote=True)
-            return
-    except:
-        await update.reply_text("Couldn't download your video!", quote=True)
-        logger.info('format send error')
-        return
-             
-async def zee5_execute(bot, update):
-  
-    try:
-        cb_data = update.data
-        tg_send_type, youtube_dl_format, youtube_dl_ext = cb_data.split("|")
-        
-        thumb_image_path = Config.DOWNLOAD_LOCATION + \
-            "/" + str(update.from_user.id) + ".jpg"
+            pass
 
-        save_ytdl_json_path = Config.DOWNLOAD_LOCATION + \
-            "/" + str(update.from_user.id) + ".json"
-        try:
-            with open(save_ytdl_json_path, "r", encoding="utf8") as f:
-                response_json = json.load(f)
-        except (FileNotFoundError) as e:
-            await bot.delete_messages(
-                chat_id=update.message.chat.id,
-                message_ids=update.message.message_id,
-                revoke=True
-            )
-            return False
-        
-        youtube_dl_url = zee5_capture.url
-        
-        linksplit = update.message.reply_to_message.text.split("/")
-        videoname = linksplit[+5]
-        logger.info(videoname)
-        
-        custom_file_name = videoname + ".mp4"
 
-        await bot.edit_message_text(
-            text=script.DOWNLOAD_START,
-            chat_id=update.message.chat.id,
-            message_id=update.message.message_id
-        )
-        description = script.CUSTOM_CAPTION_UL_FILE.format(newname=custom_file_name)
-
-        tmp_directory_for_each_user = Config.DOWNLOAD_LOCATION + "/" + str(update.from_user.id)
-        if not os.path.isdir(tmp_directory_for_each_user):
-            os.makedirs(tmp_directory_for_each_user)
-        download_directory = tmp_directory_for_each_user + "/" + custom_file_name
-        command_to_exec = []
-        
-        minus_f_format = youtube_dl_format + "+bestaudio"
-        command_to_exec = [
-            "youtube-dl",
-            "-c",
-            "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
-            "-f", minus_f_format,
-            "--hls-prefer-ffmpeg", youtube_dl_url,
-            "-o", download_directory
-        ]                  
-        command_to_exec.append("--no-warnings")
-        command_to_exec.append("--geo-bypass-country")
-        command_to_exec.append("IN")
-        
-        start = datetime.now()
-        process = await asyncio.create_subprocess_exec(
-            *command_to_exec,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        e_response = stderr.decode().strip()
-        t_response = stdout.decode().strip()
-
-        if os.path.isfile(download_directory):
-            logger.info("no issues")
-        else:
-            logger.info("issues found, passing to sub process")
-            command_to_exec.clear()
-            minus_f_format = youtube_dl_format
-            command_to_exec = [
-                "youtube-dl",
-                "-c",
-                "--max-filesize", str(Config.TG_MAX_FILE_SIZE),
-                "-f", minus_f_format,
-                "--hls-prefer-ffmpeg", youtube_dl_url,
-                "-o", download_directory
-            ]                  
-            command_to_exec.append("--no-warnings")
-            command_to_exec.append("--geo-bypass-country")
-            command_to_exec.append("IN")
-        
-            start = datetime.now()
-            process = await asyncio.create_subprocess_exec(
-                *command_to_exec,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await process.communicate()
-            e_response = stderr.decode().strip()
-            t_response = stdout.decode().strip()
-
-        ad_string_to_replace = "please report this issue on https://yt-dl.org/bug . Make sure you are using the latest version; see  https://yt-dl.org/update  on how to update. Be sure to call youtube-dl with the --verbose flag and include its complete output."
-        if e_response and ad_string_to_replace in e_response:
-            error_message = e_response.replace(ad_string_to_replace, "")
-            await bot.edit_message_text(
-                chat_id=update.message.chat.id,
-                message_id=update.message.message_id,
-                text=error_message
-            )
-            return False
-        if t_response:
-            os.remove(save_ytdl_json_path)
-            end_one = datetime.now()
-            time_taken_for_download = (end_one -start).seconds
-            file_size = Config.TG_MAX_FILE_SIZE + 1
-            try:
-                file_size = os.stat(download_directory).st_size
-            except FileNotFoundError as exc:
-                download_directory = os.path.splitext(download_directory)[0] + "." + "mp4"
-                file_size = os.stat(download_directory).st_size
-            if file_size > Config.TG_MAX_FILE_SIZE:
-                await bot.edit_message_text(
-                    chat_id=update.message.chat.id,
-                    text=script.RCHD_TG_API_LIMIT.format(time_taken_for_download, humanbytes(file_size)),
-                    message_id=update.message.message_id
-                )
-            else:
-                await bot.edit_message_text(
-                    text=script.UPLOAD_START,
-                    chat_id=update.message.chat.id,
-                    message_id=update.message.message_id
-                )
-
-                # get the correct width, height, and duration for videos greater than 10MB
-                width = 0
-                height = 0
-                duration = 0
-                if tg_send_type != "file":
-                    metadata = extractMetadata(createParser(download_directory))
-                    if metadata is not None:
-                        if metadata.has("duration"):
-                            duration = metadata.get('duration').seconds            
-                # get the correct width, height, and duration for videos greater than 10MB
-                
-                if not os.path.exists(thumb_image_path):
-                    mes = await thumb(update.from_user.id)
-                    if mes != None:
-                        m = await bot.get_messages(update.chat.id, mes.msg_id)
-                        await m.download(file_name=thumb_image_path)
-                        thumb_image_path = thumb_image_path
-                    else:
-                        try:
-                            thumb_image_path = await take_screen_shot(
-                                download_directory,
-                                os.path.dirname(download_directory),
-                                random.randint(
-                                    0,
-                                    duration - 1
-                                )
-                            )
-                        except:
-                            thumb_image_path = None
-                            pass  
-                else:
-                    width = 0
-                    height = 0
-                    metadata = extractMetadata(createParser(thumb_image_path))
-                    if metadata.has("width"):
-                        width = metadata.get("width")
-                    if metadata.has("height"):
-                        height = metadata.get("height")
-                    if tg_send_type == "vm":
-                        height = width               
-                    Image.open(thumb_image_path).convert(
-                        "RGB").save(thumb_image_path)
-                    img = Image.open(thumb_image_path)
-                    img.thumbnail((90, 90))
-                    if tg_send_type == "file":
-                        img.resize((320, height))
-                    else:
-                        img.resize((90, height))
-                    img.save(thumb_image_path, "JPEG")
-  
-                start_time = time.time()
-
-                if tg_send_type == "file":
-                    await bot.send_document(
-                        chat_id=update.message.chat.id,
-                        document=download_directory,
-                        thumb=thumb_image_path,
-                        caption=description,
-                        parse_mode="HTML",
-                        # reply_markup=reply_markup,
-                        reply_to_message_id=update.message.reply_to_message.message_id,
-                        progress=progress_for_pyrogram,
-                        progress_args=(
-                            script.UPLOAD_START,
-                            update.message,
-                            start_time
-                        )
-                    )
-                elif tg_send_type == "video":
-                    await bot.send_video(
-                        chat_id=update.message.chat.id,
-                        video=download_directory,
-                        caption=description,
-                        parse_mode="HTML",
-                        duration=duration,
-                        width=width,
-                        height=height,
-                        supports_streaming=True,
-                        # reply_markup=reply_markup,
-                        thumb=thumb_image_path,
-                        reply_to_message_id=update.message.reply_to_message.message_id,
-                        progress=progress_for_pyrogram,
-                        progress_args=(
-                            script.UPLOAD_START,
-                            update.message,
-                            start_time
-                        )
-                    )
-                else:
-                    logger.info("Did this happen? :\\")
-
-                try:
-                    shutil.rmtree(tmp_directory_for_each_user)
-                except:
-                    pass
-                try:
-                    os.remove(thumb_image_path)
-                except:
-                    pass
-
-                await bot.edit_message_text(
-                    text=script.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(text="🙌🏻 SHARE ME 🙌🏻", url="tg://msg?text=%2A%2AHai%20%E2%9D%A4%EF%B8%8F%2C%2A%2A%20%0A__Today%20i%20just%20found%20out%20an%20intresting%20and%20Powerful__%20%2A%2AZee5%20Downloader%20Bot%2A%2A%20__for%20Free%F0%9F%A5%B0.__%20%20%0A%2A%2ABot%20Link%20%3A%20%40Zee5HEXBot%2A%2A%20%F0%9F%94%A5")]]),
-                    chat_id=update.message.chat.id,
-                    message_id=update.message.message_id,
-                    disable_web_page_preview=True
-                )               
-    except:
-        await update.reply_text("Couldn't download your video!", quote=True)
-        logger.info('error in process')
+url = input('\nEnter URL: ')
+ThisIsTheWay = url.split('?')[0].split('/')[-1]
+hmm = input('\nEnter 1 if url is web-series, or anything else if movie or episode: ')
+qual = input("Press 1 for 1080p, 2 for 720p,....: ")
+# 1 is highest qual available, if 1080p fails to exist qual fallbacks to 720p, no qual selection for audio
+if "1" not in hmm:
+    print("Ripping Only 1 Video....")
+    RipIt(ThisIsTheWay,qual)
+else:
+    resp = requests.get(url = f"https://gwapi.zee5.com/content/tvshow/{ThisIsTheWay}?translation=en&country=IN").json()["seasons"][0]['episodes']
+    print(f'Downloading {len(resp)} episodes from series....')
+    for x in range(0, len(resp)):
+        RipIt(resp[x]['id'],qual)
