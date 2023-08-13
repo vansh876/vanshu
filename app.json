@@ -7,7 +7,7 @@
     "downloader"
   ],
 
-  "repository": "https://github.com/ajvadntr/AIOM_ZEE5_DL_BOT",
+  "repository": "https://github.com/vansh876/vanshu",
   
   "env": {
     "WEBHOOK": {
@@ -48,7 +48,7 @@
   "formation": {
     "worker": {
       "quantity": 1,
-      "size": "free"
+      "size": "eco"
     }
   }
 }
