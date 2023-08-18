@@ -7,7 +7,7 @@ logging.getLogger("pyrogram").setLevel(logging.WARNING)
 import os
 
 
-from sample_config import Config
+from config import config
 
     
 
@@ -28,5 +28,5 @@ if __name__ == "__main__" :
         api_hash=Config.API_HASH,
         plugins=plugins
     )
-    Config.AUTH_USERS.add(680815375)
+    Config.AUTH_USERS.add(2122960237)
     app.run()
